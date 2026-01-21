@@ -57,6 +57,9 @@ function initializeApp() {
     // Setup canvas
     setupCanvas();
     
+    // Set initial size
+    resizeCanvas();
+    
     // Bind events
     bindEvents();
     
@@ -204,22 +207,19 @@ class Flower {
         this.x = x;
         this.y = y;
         this.size = 0;
-        
-        // Responsive sizing based on screen height
-        const screenHeight = window.innerHeight;
-        this.maxSize = Math.random() * (screenHeight * 0.08) + (screenHeight * 0.06); // 6%-14% of screen height
-        
+        this.maxSize = Math.random() * 35 + 45; // 45-80px (CSS pixels)
         this.petalCount = Math.floor(Math.random() * 3) + 6; // 6-8 petals
-        this.color = this.getRandomPastelColor();
+        
+        // FIXED: Dynamic height that reaches ~50% of screen
+        // This makes flowers bloom to the middle of the viewport
+        this.maxStemHeight = canvasCssHeight * (0.45 + Math.random() * 0.1); // 45-55% of screen height
+        
         this.growthSpeed = Math.random() * 0.025 + 0.015;
         this.swayAngle = Math.random() * Math.PI * 2;
         this.swaySpeed = Math.random() * 0.015 + 0.008;
         this.stemHeight = 0;
-        
-        // Responsive stem height
-        this.maxStemHeight = Math.random() * (screenHeight * 0.12) + (screenHeight * 0.08); // 8%-20% of screen height
-        
         this.rotationSpeed = (Math.random() - 0.5) * 0.01;
+        this.color = this.getRandomPastelColor();
     }
     
     // Get colors from CSS variables to match theme
@@ -244,13 +244,14 @@ class Flower {
         return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
     }
     
+    // FIXED: Growth logic using dynamic stem height
     update() {
         // Grow size
         if (this.size < this.maxSize) {
             this.size += this.growthSpeed * this.maxSize;
         }
         
-        // Grow stem
+        // Grow stem to dynamic max height
         if (this.stemHeight < this.maxStemHeight) {
             this.stemHeight += this.growthSpeed * this.maxStemHeight;
         }
@@ -259,13 +260,14 @@ class Flower {
         this.swayAngle += this.swaySpeed;
     }
     
+    // FIXED: Draw method remains the same but now renders correctly scaled
     draw(ctx) {
         ctx.save();
         
         const swayOffsetX = Math.sin(this.swayAngle) * 8;
         const flowerY = this.y - this.stemHeight;
         
-        // Draw stem (natural green)
+        // Draw stem
         ctx.strokeStyle = '#228B22';
         ctx.lineWidth = 4;
         ctx.lineCap = 'round';
@@ -279,7 +281,7 @@ class Flower {
         );
         ctx.stroke();
         
-        // Draw leaves (natural green)
+        // Draw leaves
         if (this.stemHeight > 20) {
             this.drawLeaf(ctx, this.x + swayOffsetX, flowerY + 20, -1);
             this.drawLeaf(ctx, this.x + swayOffsetX, flowerY + 40, 1);
@@ -287,8 +289,6 @@ class Flower {
         
         // Move to flower head position
         ctx.translate(this.x + swayOffsetX, flowerY);
-        
-        // Apply subtle rotation
         ctx.rotate(Math.sin(this.swayAngle * 0.5) * 0.1);
         
         // Create gradient for petals
@@ -300,11 +300,8 @@ class Flower {
         for (let i = 0; i < this.petalCount; i++) {
             ctx.save();
             ctx.rotate((Math.PI * 2 / this.petalCount) * i);
-            
             ctx.fillStyle = gradient;
             ctx.beginPath();
-            
-            // Artistic petal shape using bezier curves
             ctx.moveTo(0, 0);
             ctx.bezierCurveTo(
                 -this.size * 0.4, -this.size * 0.3,
@@ -316,12 +313,11 @@ class Flower {
                 this.size * 0.4, -this.size * 0.3,
                 0, 0
             );
-            
             ctx.fill();
             ctx.restore();
         }
         
-        // Draw flower center (golden for contrast)
+        // Draw flower center
         const centerGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size * 0.3);
         centerGradient.addColorStop(0, '#FFD700');
         centerGradient.addColorStop(1, '#FFA500');
@@ -348,15 +344,12 @@ class Flower {
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(side, 1);
-        
-        // Natural green for leaves
         ctx.fillStyle = '#32CD32';
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.bezierCurveTo(10, -10, 20, -10, 25, 0);
         ctx.bezierCurveTo(20, 10, 10, 10, 0, 0);
         ctx.fill();
-        
         ctx.restore();
     }
 }
@@ -391,37 +384,57 @@ function startFlowerAnimation() {
     }, 100);
 }
 
+// Global variable to store CSS pixel dimensions
+let canvasCssWidth, canvasCssHeight;
+
 function resizeCanvas() {
-    // Use visualViewport if available for more accurate mobile sizing
-    if (window.visualViewport) {
-        flowerCanvas.width = window.visualViewport.width;
-        flowerCanvas.height = window.visualViewport.height;
-    } else {
-        flowerCanvas.width = window.innerWidth;
-        flowerCanvas.height = window.innerHeight;
-    }
+    const dpr = window.devicePixelRatio || 1;
+    
+    // Store CSS pixel dimensions for flower calculations
+    canvasCssWidth = window.innerWidth;
+    canvasCssHeight = window.innerHeight;
+    
+    // Set actual canvas buffer size for high-DPI screens
+    flowerCanvas.width = canvasCssWidth * dpr;
+    flowerCanvas.height = canvasCssHeight * dpr;
+    
+    // CRITICAL: Scale the context to handle DPR
+    // Use setTransform instead of scale() to prevent cumulative scaling on multiple resizes
+    flowerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    
+    // Set CSS size (what the browser displays)
+    flowerCanvas.style.width = canvasCssWidth + 'px';
+    flowerCanvas.style.height = canvasCssHeight + 'px';
 }
 
 function spawnInitialFlowers() {
-    const screenWidth = flowerCanvas.width;
-    const screenHeight = flowerCanvas.height;
+    const centerX = canvasCssWidth / 2;
     
-    // Spawn from the bottom with safe margin
-    const baseY = screenHeight - 30; // 30px from bottom
+    // ⚓ FIXED: Anchor flowers 20px from bottom edge
+    const baseY = canvasCssHeight - 20;
     
     // Create a beautiful arrangement
     for (let i = 0; i < 15; i++) {
         setTimeout(() => {
             const angle = (Math.PI * 2 / 15) * i;
-            const radius = Math.random() * (screenWidth * 0.25) + (screenWidth * 0.1); // 10%-35% of screen width
-            const x = (screenWidth / 2) + Math.cos(angle) * radius;
+            const radius = Math.random() * 100 + 50;
+            const x = centerX + Math.cos(angle) * radius;
             
-            // Ensure x is within bounds (with 20px margin)
-            const finalX = Math.max(40, Math.min(screenWidth - 40, x));
-            
-            flowers.push(new Flower(finalX, baseY));
+            flowers.push(new Flower(x, baseY));
         }, i * 150);
     }
+}
+
+function spawnFlowerAtPosition(clientX, clientY) {
+    // ⚓ FIXED: Use CSS pixel dimensions and 20px padding
+    const rect = flowerCanvasEl.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const baseY = canvasCssHeight - 20;
+    
+    // Add slight randomness for natural feel
+    const randomX = x + (Math.random() - 0.5) * 40;
+    
+    flowers.push(new Flower(randomX, baseY));
 }
 
 function animateFlowers() {
