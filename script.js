@@ -1,6 +1,3 @@
-// ==========================================
-// SLIDES DATA
-// ==========================================
 const slides = [
     {
         id: 1,
@@ -62,6 +59,16 @@ function initializeApp() {
     
     // Bind events
     bindEvents();
+    
+    // Preload audio (muted) to avoid delays
+    audioPlayer.volume = 0;
+    audioPlayer.play().then(() => {
+        audioPlayer.pause();
+        audioPlayer.volume = 1;
+        audioPlayer.currentTime = 0;
+    }).catch(() => {
+        // Ignore errors on preload
+    });
 }
 
 // ==========================================
@@ -85,7 +92,7 @@ function handleStart() {
             firstSlide.classList.add('active');
         }
         
-        // Start audio (this will only work after user interaction)
+        // Start audio
         playAudio();
     }, 1000);
 }
@@ -96,7 +103,6 @@ function playAudio() {
             isAudioPlaying = true;
         }).catch((error) => {
             console.log('Audio autoplay failed:', error);
-            // Audio will fail on mobile without user interaction, but we already handled that
         });
     }
 }
@@ -116,7 +122,6 @@ function toggleMute() {
         muteIcon.classList.add('hidden');
     }
     
-    // Update button state
     muteButton.setAttribute('aria-pressed', isMuted);
 }
 
@@ -199,14 +204,21 @@ class Flower {
         this.x = x;
         this.y = y;
         this.size = 0;
-        this.maxSize = Math.random() * 35 + 45; // 45-80px
+        
+        // Responsive sizing based on screen height
+        const screenHeight = window.innerHeight;
+        this.maxSize = Math.random() * (screenHeight * 0.08) + (screenHeight * 0.06); // 6%-14% of screen height
+        
         this.petalCount = Math.floor(Math.random() * 3) + 6; // 6-8 petals
         this.color = this.getRandomPastelColor();
         this.growthSpeed = Math.random() * 0.025 + 0.015;
         this.swayAngle = Math.random() * Math.PI * 2;
         this.swaySpeed = Math.random() * 0.015 + 0.008;
         this.stemHeight = 0;
-        this.maxStemHeight = Math.random() * 60 + 40;
+        
+        // Responsive stem height
+        this.maxStemHeight = Math.random() * (screenHeight * 0.12) + (screenHeight * 0.08); // 8%-20% of screen height
+        
         this.rotationSpeed = (Math.random() - 0.5) * 0.01;
     }
     
@@ -218,7 +230,7 @@ class Flower {
             computedStyle.getPropertyValue('--flower-lavender').trim(),
             computedStyle.getPropertyValue('--flower-peach').trim(),
             computedStyle.getPropertyValue('--flower-white').trim(),
-            '#FFE4E1', // Additional soft colors
+            '#FFE4E1',
             '#F0E68C'
         ];
         return palette[Math.floor(Math.random() * palette.length)];
@@ -364,39 +376,50 @@ function startFlowerAnimation() {
     // Show canvas with fade-in
     flowerCanvasEl.style.display = 'block';
     flowerCanvasEl.style.opacity = '0';
+    
+    // Ensure proper sizing before animation starts
     setTimeout(() => {
+        resizeCanvas();
         flowerCanvasEl.style.transition = 'opacity 1s ease';
         flowerCanvasEl.style.opacity = '1';
+        
+        // Spawn initial bouquet of flowers
+        spawnInitialFlowers();
+        
+        // Start animation loop
+        animateFlowers();
     }, 100);
-    
-    // Set canvas size
-    resizeCanvas();
-    
-    // Spawn initial bouquet of flowers
-    spawnInitialFlowers();
-    
-    // Start animation loop
-    animateFlowers();
 }
 
 function resizeCanvas() {
-    flowerCanvas.width = window.innerWidth;
-    flowerCanvas.height = window.innerHeight;
+    // Use visualViewport if available for more accurate mobile sizing
+    if (window.visualViewport) {
+        flowerCanvas.width = window.visualViewport.width;
+        flowerCanvas.height = window.visualViewport.height;
+    } else {
+        flowerCanvas.width = window.innerWidth;
+        flowerCanvas.height = window.innerHeight;
+    }
 }
 
 function spawnInitialFlowers() {
-    const centerX = flowerCanvas.width / 2;
-    const centerY = flowerCanvas.height / 2;
+    const screenWidth = flowerCanvas.width;
+    const screenHeight = flowerCanvas.height;
+    
+    // Spawn from the bottom with safe margin
+    const baseY = screenHeight - 30; // 30px from bottom
     
     // Create a beautiful arrangement
     for (let i = 0; i < 15; i++) {
         setTimeout(() => {
             const angle = (Math.PI * 2 / 15) * i;
-            const radius = Math.random() * 100 + 50;
-            const x = centerX + Math.cos(angle) * radius;
-            const y = flowerCanvas.height - 50;
+            const radius = Math.random() * (screenWidth * 0.25) + (screenWidth * 0.1); // 10%-35% of screen width
+            const x = (screenWidth / 2) + Math.cos(angle) * radius;
             
-            flowers.push(new Flower(x, y));
+            // Ensure x is within bounds (with 20px margin)
+            const finalX = Math.max(40, Math.min(screenWidth - 40, x));
+            
+            flowers.push(new Flower(finalX, baseY));
         }, i * 150);
     }
 }
@@ -445,23 +468,41 @@ function bindEvents() {
         }
     });
     
-    // Handle window resize
+    // Handle window resize with debouncing
+    let resizeTimeout;
     window.addEventListener('resize', () => {
-        if (flowerCanvasEl.style.display === 'block') {
-            resizeCanvas();
-        }
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            if (flowerCanvasEl.style.display === 'block') {
+                resizeCanvas();
+            }
+        }, 250);
     });
+    
+    // Handle visualViewport changes (mobile browser UI changes)
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', () => {
+            if (flowerCanvasEl.style.display === 'block') {
+                resizeCanvas();
+            }
+        });
+    }
 }
 
 function spawnFlowerAtPosition(clientX, clientY) {
     const rect = flowerCanvasEl.getBoundingClientRect();
     const x = clientX - rect.left;
-    const y = rect.bottom - 50; // Base of the screen
+    
+    // Spawn from bottom of canvas, not where user clicked
+    const y = flowerCanvas.height - 30; // 30px from bottom
     
     // Add slight randomness for natural feel
     const randomX = x + (Math.random() - 0.5) * 40;
     
-    flowers.push(new Flower(randomX, y));
+    // Ensure x is within bounds
+    const finalX = Math.max(40, Math.min(flowerCanvas.width - 40, randomX));
+    
+    flowers.push(new Flower(finalX, y));
 }
 
 // ==========================================
